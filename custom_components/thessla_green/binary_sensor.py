@@ -8,13 +8,16 @@ from homeassistant.config_entries import ConfigEntry
 
 from . import DOMAIN
 from .coordinator import ThesslaGreenCoordinator
+from .particle import is_particle, particle_entities
+from .entity import ModbusEntity
+from .airpack4 import is_airpack4, airpack4_entities
 
 _LOGGER = logging.getLogger(__name__)
 
 BINARY_SENSORS = [
     # Odczyt z COILS
     {"name": "Rekuperator Silownik bypassu", "address": 9, "input_type": "coil", "icon_on": "mdi:valve-open", "icon_off": "mdi:valve-closed"},
-    {"name": "Rekuperator Potwierdzenie pracy", "address": 11, "input_type": "coil", "icon_on": "mdi:check-circle", "icon_off": "mdi:circle-outline"},
+    {"name": "Rekuperator Zasilanie wentylatorów", "address": 11, "input_type": "coil", "icon_on": "mdi:power-plug", "icon_off": "mdi:power-plug-off"},
 
     # Odczyt z HOLDING REGISTERS
     {"name": "Rekuperator Alarm", "address": 8192, "input_type": "holding", "device_class": "problem"},
@@ -23,16 +26,15 @@ BINARY_SENSORS = [
     {"name": "Rekuperator Awaria Wentylatora Nawiewu", "address": 8222, "input_type": "holding", "device_class": "problem"},
     {"name": "Rekuperator Awaria Wentylatora Wywiewu", "address": 8223, "input_type": "holding", "device_class": "problem"},
 
-    # BYPASS: tutaj wartość 0 oznacza "ON" (otwarty) – odwracamy logikę przez on_value=0
-    {"name": "Rekuperator Bypass", "address": 4320, "input_type": "holding", "on_value": 0, "icon_on": "mdi:valve-open", "icon_off": "mdi:valve-closed"},
+    {"name": "Rekuperator Automatyka bypassu", "address": 4320, "input_type": "holding", "on_value": 0, "icon_on": "mdi:autorenew", "icon_off": "mdi:cancel"},
 
     {"name": "Rekuperator Error", "address": 8193, "input_type": "holding", "device_class": "problem"},
     {"name": "Rekuperator fpx flaga", "address": 4192, "input_type": "holding", "icon_on": "mdi:flag", "icon_off": "mdi:flag-outline"},
-    {"name": "Rekuperator FPX tryb", "address": 4198, "input_type": "holding", "icon_on": "mdi:fan-alert", "icon_off": "mdi:fan"},
+    {"name": "Rekuperator FPX aktywny", "address": 4198, "input_type": "holding", "on_values": (1, 2), "icon_on": "mdi:fan-alert", "icon_off": "mdi:fan"},
     {"name": "Rekuperator FPX zabezpieczenie termiczne", "address": 8208, "input_type": "holding", "device_class": "safety"},
     {"name": "Rekuperator lato zima", "address": 4209, "input_type": "holding", "icon_on": "mdi:sun-thermometer", "icon_off": "mdi:snowflake"},
     {"name": "Rekuperator Wymiana Filtrów", "address": 8444, "input_type": "holding", "icon_on": "mdi:air-filter", "icon_off": "mdi:fan-alert"},
-    {"name": "Rekuperator Status ERV", "address": 4704, "input_type": "holding", "on_value": 0, "icon_on": "mdi:radiator", "icon_off": "mdi:radiator-off"},
+    {"name": "Rekuperator Status ERV", "address": 4704, "input_type": "holding", "on_value": 1, "icon_on": "mdi:radiator", "icon_off": "mdi:radiator-off"},
 ]
 
 async def async_setup_entry(
@@ -44,6 +46,12 @@ async def async_setup_entry(
     modbus_data = hass.data[DOMAIN][entry.entry_id]
     coordinator: ThesslaGreenCoordinator = modbus_data["coordinator"]
     slave = modbus_data["slave"]
+    if is_airpack4(entry):
+        async_add_entities(airpack4_entities("binary_sensor", coordinator, entry))
+        return
+    if is_particle(entry):
+        async_add_entities(particle_entities("binary_sensor", coordinator, entry))
+        return
 
     entities = [
         ModbusBinarySensor(coordinator=coordinator, slave=slave, **sensor)
@@ -53,7 +61,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class ModbusBinarySensor(BinarySensorEntity):
+class ModbusBinarySensor(ModbusEntity, BinarySensorEntity):
     """Representation of a Modbus binary sensor."""
 
     def __init__(
@@ -67,8 +75,9 @@ class ModbusBinarySensor(BinarySensorEntity):
         icon_on: str | None = None,
         icon_off: str | None = None,
         on_value: int | None = None,
+        on_values: tuple[int, ...] | None = None,
     ):
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self._attr_name = name
         self._address = address
         self._input_type = input_type
@@ -78,6 +87,7 @@ class ModbusBinarySensor(BinarySensorEntity):
 
         # Jeśli nie podano, przyjmij standard: 1 = ON
         self._on_value = 1 if on_value is None else on_value
+        self._on_values = on_values
 
         self._attr_unique_id = f"thessla_binary_sensor_{slave}_{address}"
         self._attr_device_class = device_class
@@ -100,16 +110,13 @@ class ModbusBinarySensor(BinarySensorEntity):
             val = self.coordinator.safe_data.coil.get(self._address)
             if val is None:
                 return None
-            try:
-                return int(bool(val)) == self._on_value
-            except Exception:
-                return bool(val)
+            return int(bool(val)) == self._on_value
 
         elif self._input_type == "holding":
             value = self.coordinator.safe_data.holding.get(self._address)
             if value is None:
                 return None
-            return value == self._on_value
+            return value in self._on_values if self._on_values is not None else value == self._on_value
 
         _LOGGER.error("Unknown input_type '%s' for %s", self._input_type, self._attr_name)
         return None
@@ -120,11 +127,3 @@ class ModbusBinarySensor(BinarySensorEntity):
         if self.is_on is None:
             return None
         return self._icon_on if self.is_on else self._icon_off
-
-    async def async_update(self):
-        """No manual polling needed — coordinator handles data updates."""
-        pass
-
-    async def async_added_to_hass(self):
-        """Register entity with coordinator updates."""
-        self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))

@@ -8,6 +8,9 @@ from homeassistant.config_entries import ConfigEntry
 
 from . import DOMAIN
 from .coordinator import ThesslaGreenCoordinator
+from .particle import is_particle, particle_entities
+from .entity import ModbusEntity
+from .airpack4 import is_airpack4, airpack4_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +29,12 @@ async def async_setup_entry(
     modbus_data = hass.data[DOMAIN][entry.entry_id]
     coordinator: ThesslaGreenCoordinator = modbus_data["coordinator"]
     slave = modbus_data["slave"]
+    if is_airpack4(entry):
+        async_add_entities(airpack4_entities("switch", coordinator, entry))
+        return
+    if is_particle(entry):
+        async_add_entities(particle_entities("switch", coordinator, entry))
+        return
 
     entities = [
         ModbusSwitch(coordinator=coordinator, slave=slave, **sw)
@@ -34,7 +43,7 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
-class ModbusSwitch(SwitchEntity):
+class ModbusSwitch(ModbusEntity, SwitchEntity):
     """Representation of a Modbus-based switch."""
 
     def __init__(
@@ -47,7 +56,7 @@ class ModbusSwitch(SwitchEntity):
         verify: bool = False,
         slave: int = 1,
     ):
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self._address = address
         self._command_on = command_on
         self._command_off = command_off
@@ -78,31 +87,8 @@ class ModbusSwitch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the switch on."""
-        try:
-            success = await self.coordinator.controller.write_register(self._address, self._command_on)
-            if success and not self._verify:
-                self.async_write_ha_state()
-            elif self._verify:
-                await self.coordinator.async_request_refresh()
-        except Exception as e:
-            _LOGGER.exception(f"Error turning on {self._attr_name}: {e}")
+        await self._async_write_register(self._address, self._command_on)
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the switch off."""
-        try:
-            success = await self.coordinator.controller.write_register(self._address, self._command_off)
-            if success and not self._verify:
-                self.async_write_ha_state()
-            elif self._verify:
-                await self.coordinator.async_request_refresh()
-        except Exception as e:
-            _LOGGER.exception(f"Error turning off {self._attr_name}: {e}")
-
-    async def async_update(self) -> None:
-        """Update state (no-op with coordinator)."""
-        # Nic nie robimy, dane aktualizuje coordinator
-        pass
-
-    async def async_added_to_hass(self) -> None:
-        """Register callbacks."""
-        self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))
+        await self._async_write_register(self._address, self._command_off)

@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Urządzenie Thessla Green",
+        "data": {"device_type": "Typ urządzenia"}
+      },
+      "connection": {
+        "title": "Połączenie Modbus TCP",
+        "description": "Podaj adres bramki Modbus TCP. Domyślny adres slave Particle+ to 30.",
+        "data": {"host": "Adres hosta", "port": "Port", "slave": "Adres slave", "scan_interval": "Interwał odświeżania (sekundy)"}
+      }
+    },
+    "abort": {"already_configured": "To urządzenie jest już skonfigurowane"}
+  },
+  "options": {
+    "step": {
+      "init": {"title": "Opcje", "description": "Wybierz AirPack4 300h, aby włączyć funkcje sterownika 4.89. Wskaż zainstalowany system kontroli filtrów, aby udostępnić odpowiednie przyciski potwierdzenia wymiany. Sensor mocy jest opcjonalny dla COP.", "data": {"sensor_power": "Sensor poboru mocy (W lub kW)", "recuperator_model": "Model rekuperatora", "filter_control": "System kontroli filtrów"}}
+    },
+    "error": {"entity_not_found": "Wybrany sensor nie istnieje", "invalid_power_unit": "Wybierz sensor mocy z jednostką W lub kW"}
+  }
+}

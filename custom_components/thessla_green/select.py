@@ -1,71 +1,54 @@
-from __future__ import annotations
-import logging
+"""Modbus mode selectors."""
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import DOMAIN
+from .const import DOMAIN
 from .coordinator import ThesslaGreenCoordinator
+from .entity import ModbusEntity
+from .particle import is_particle, particle_entities
+from .airpack4 import is_airpack4, airpack4_entities
 
-_LOGGER = logging.getLogger(__name__)
+MODES = {"Brak trybu": 0, "Wietrzenie": 7, "Pusty Dom": 11, "Kominek": 2, "Okna": 10}
+SEASONS = {"Lato": 0, "Zima": 1}
+ERV_MODES = {"ERV nieaktywny": 0, "ERV tryb 1": 1, "ERV tryb 2": 2}
+COMFORT_MODES = {"EKO": 0, "KOMFORT": 1}
 
-MODES = {
-    "Brak trybu": 0,
-    "Wietrzenie": 7,
-    "Pusty Dom": 11,
-    "Kominek": 2,
-    "Okna": 10,
-}
-
-SEASONS = {
-    "Lato": 0,
-    "Zima": 1,
-}
-
-ERV_MODES = {
-    "ERV nieaktywny": 0,
-    "ERV tryb 1": 1,
-    "ERV tryb 2": 2,
-}
-
-COMFORT_MODES = {
-    "EKO": 0,
-    "KOMFORT": 1,
-}
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up select entities."""
-    modbus_data = hass.data[DOMAIN][entry.entry_id]
-    coordinator: ThesslaGreenCoordinator = modbus_data["coordinator"]
-    slave = modbus_data["slave"]
-
+    data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = data["coordinator"]
+    if is_airpack4(entry):
+        async_add_entities(airpack4_entities("select", coordinator, entry))
+        return
+    if is_particle(entry):
+        async_add_entities(particle_entities("select", coordinator, entry))
+        return
     async_add_entities([
-        RekuperatorTrybSelect(coordinator=coordinator, slave=slave),
-        RekuperatorSezonSelect(coordinator=coordinator, slave=slave),
-        RekuperatorErvTrybSelect(coordinator=coordinator, slave=slave),
-        RekuperatorKomfortSelect(coordinator=coordinator, slave=slave),
+        entity_class(coordinator, data["slave"])
+        for entity_class in (RekuperatorTrybSelect, RekuperatorSezonSelect,
+                             RekuperatorErvTrybSelect, RekuperatorKomfortSelect)
     ])
 
 
-class RekuperatorTrybSelect(SelectEntity):
-    """Representation of Rekuperator Tryb Select."""
+class _RecuperatorSelect(ModbusEntity, SelectEntity):
+    """Share selector logic while retaining existing entity identities."""
 
-    def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int):
-        self.coordinator = coordinator
-        self._address = 4224
-        self._slave = slave
-        self._attr_name = "Rekuperator Tryb"
-        self._attr_options = list(MODES.keys())
-        self._value_map = {v: k for k, v in MODES.items()}
-        self._reverse_map = MODES
-        self._attr_unique_id = f"thessla_select_{slave}_{self._address}"
-
+    def __init__(self, coordinator, slave, address, name, options, unique_id_prefix):
+        super().__init__(coordinator)
+        self._address = address
+        self._reverse_map = options
+        self._value_map = {value: label for label, value in options.items()}
+        self._attr_name = name
+        self._attr_options = list(options)
+        self._attr_unique_id = f"{unique_id_prefix}_{slave}_{address}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, f"{slave}")},
             "name": "Rekuperator Thessla",
@@ -74,206 +57,30 @@ class RekuperatorTrybSelect(SelectEntity):
         }
 
     @property
-    def available(self) -> bool:
-        return self.coordinator.last_update_success
+    def current_option(self):
+        return self._value_map.get(self.coordinator.safe_data.holding.get(self._address))
 
-    @property
-    def current_option(self) -> str | None:
-        """Return the current selected option."""
-        value = self.coordinator.safe_data.holding.get(self._address)
-        if value is None:
-            return None
-        return self._value_map.get(value)
+    async def async_select_option(self, option):
+        if option not in self._reverse_map:
+            raise HomeAssistantError(f"Unknown option: {option}")
+        await self._async_write_register(self._address, self._reverse_map[option])
 
-    async def async_select_option(self, option: str) -> None:
-        """Change the selected option."""
-        try:
-            code = self._reverse_map.get(option)
-            if code is None:
-                _LOGGER.error(f"Unknown option selected: {option}")
-                return
 
-            success = await self.coordinator.controller.write_register(self._address, code)
-            if success:
-                await self.coordinator.async_request_refresh()
-
-        except Exception as e:
-            _LOGGER.exception(f"Exception during tryb selection: {e}")
-
-    async def async_update(self):
-        """No-op, data provided by coordinator."""
-        pass
-
-    async def async_added_to_hass(self):
-        self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))
-
-class RekuperatorSezonSelect(SelectEntity):
-    """Representation of Rekuperator Sezon Select."""
-
+class RekuperatorTrybSelect(_RecuperatorSelect):
     def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int):
-        self.coordinator = coordinator
-        self._address = 4209
-        self._slave = slave
-        self._attr_name = "Rekuperator Sezon"
-        self._attr_options = list(SEASONS.keys())
-        self._value_map = {v: k for k, v in SEASONS.items()}
-        self._reverse_map = SEASONS
-        self._attr_unique_id = f"thessla_sezon_select_{slave}_{self._address}"
+        super().__init__(coordinator, slave, 4224, "Rekuperator Tryb", MODES, "thessla_select")
 
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{slave}")},
-            "name": "Rekuperator Thessla",
-            "manufacturer": "Thessla Green",
-            "model": "Modbus Rekuperator",
-        }
 
-    @property
-    def available(self) -> bool:
-        return self.coordinator.last_update_success
-
-    @property
-    def current_option(self) -> str | None:
-        """Return the current selected option."""
-        value = self.coordinator.safe_data.holding.get(self._address)
-        if value is None:
-            return None
-        return self._value_map.get(value)
-
-    async def async_select_option(self, option: str) -> None:
-        """Change the selected option."""
-        try:
-            code = self._reverse_map.get(option)
-            if code is None:
-                _LOGGER.error(f"Unknown option selected: {option}")
-                return
-
-            success = await self.coordinator.controller.write_register(self._address, code)
-            if success:
-                await self.coordinator.async_request_refresh()
-
-        except Exception as e:
-            _LOGGER.exception(f"Exception during sezon selection: {e}")
-
-    async def async_update(self):
-        """No-op, data provided by coordinator."""
-        pass
-
-    async def async_added_to_hass(self):
-        self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))
-
-class RekuperatorErvTrybSelect(SelectEntity):
-    """Representation of ERV mode Select."""
-
+class RekuperatorSezonSelect(_RecuperatorSelect):
     def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int):
-        self.coordinator = coordinator
-        self._address = 4711
-        self._slave = slave
-        self._attr_name = "Rekuperator ERV tryb"
-        self._attr_options = list(ERV_MODES.keys())
-        self._value_map = {v: k for k, v in ERV_MODES.items()}
-        self._reverse_map = ERV_MODES
-        self._attr_unique_id = f"thessla_erv_select_{slave}_{self._address}"
-
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{slave}")},
-            "name": "Rekuperator Thessla",
-            "manufacturer": "Thessla Green",
-            "model": "Modbus Rekuperator",
-        }
-
-    @property
-    def available(self) -> bool:
-        return self.coordinator.last_update_success
-
-    @property
-    def current_option(self) -> str | None:
-        """Return the current selected option."""
-        value = self.coordinator.safe_data.holding.get(self._address)
-        if value is None:
-            return None
-        return self._value_map.get(value)
-
-    async def async_select_option(self, option: str) -> None:
-        """Change the selected option."""
-        try:
-            code = self._reverse_map.get(option)
-            if code is None:
-                _LOGGER.error(f"Unknown ERV option selected: {option}")
-                return
-
-            success = await self.coordinator.controller.write_register(
-                self._address, code
-            )
-            if success:
-                await self.coordinator.async_request_refresh()
-
-        except Exception as e:
-            _LOGGER.exception(f"Exception during ERV mode selection: {e}")
-
-    async def async_update(self):
-        """No-op, data provided by coordinator."""
-        pass
-
-    async def async_added_to_hass(self):
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
+        super().__init__(coordinator, slave, 4209, "Rekuperator Sezon", SEASONS, "thessla_sezon_select")
 
 
-class RekuperatorKomfortSelect(SelectEntity):
-    """Representation of ECO/KOMFORT Select."""
-
+class RekuperatorErvTrybSelect(_RecuperatorSelect):
     def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int):
-        self.coordinator = coordinator
-        self._address = 4304
-        self._slave = slave
-        self._attr_name = "Rekuperator ECO/KOMFORT"
-        self._attr_options = list(COMFORT_MODES.keys())
-        self._value_map = {v: k for k, v in COMFORT_MODES.items()}
-        self._reverse_map = COMFORT_MODES
-        self._attr_unique_id = f"thessla_komfort_select_{slave}_{self._address}"
+        super().__init__(coordinator, slave, 4711, "Rekuperator ERV tryb", ERV_MODES, "thessla_erv_select")
 
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"{slave}")},
-            "name": "Rekuperator Thessla",
-            "manufacturer": "Thessla Green",
-            "model": "Modbus Rekuperator",
-        }
 
-    @property
-    def available(self) -> bool:
-        return self.coordinator.last_update_success
-
-    @property
-    def current_option(self) -> str | None:
-        """Return the current selected option."""
-        value = self.coordinator.safe_data.holding.get(self._address)
-        if value is None:
-            return None
-        return self._value_map.get(value)
-
-    async def async_select_option(self, option: str) -> None:
-        """Change the selected option."""
-        try:
-            code = self._reverse_map.get(option)
-            if code is None:
-                _LOGGER.error(f"Unknown ECO/KOMFORT option selected: {option}")
-                return
-
-            success = await self.coordinator.controller.write_register(
-                self._address, code
-            )
-            if success:
-                await self.coordinator.async_request_refresh()
-
-        except Exception as e:
-            _LOGGER.exception(f"Exception during ECO/KOMFORT selection: {e}")
-
-    async def async_update(self):
-        """No-op, data provided by coordinator."""
-        pass
-
-    async def async_added_to_hass(self):
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
+class RekuperatorKomfortSelect(_RecuperatorSelect):
+    def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int):
+        super().__init__(coordinator, slave, 4304, "Rekuperator ECO/KOMFORT", COMFORT_MODES, "thessla_komfort_select")

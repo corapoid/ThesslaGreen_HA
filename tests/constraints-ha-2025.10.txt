@@ -1,0 +1,2 @@
+# aiodns 3.5 used by HA 2025.10 is incompatible with pycares 5.x.
+pycares>=4.9.0,<5.0

@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Thessla Green device",
+        "data": {"device_type": "Device type"}
+      },
+      "connection": {
+        "title": "Modbus TCP connection",
+        "description": "Enter the Modbus TCP gateway address. Particle+ defaults to slave ID 30.",
+        "data": {"host": "Host", "port": "Port", "slave": "Slave ID", "scan_interval": "Update interval (seconds)"}
+      }
+    },
+    "abort": {"already_configured": "This device is already configured"}
+  },
+  "options": {
+    "step": {
+      "init": {"title": "Options", "description": "Select AirPack4 300h for the 4.89 user controls. Select the installed filter system to enable the applicable filter-replacement buttons. The power sensor is optional for COP.", "data": {"sensor_power": "Power sensor (W or kW)", "recuperator_model": "Recuperator model", "filter_control": "Filter monitoring system"}}
+    },
+    "error": {"entity_not_found": "The selected sensor does not exist", "invalid_power_unit": "Select a power sensor reporting W or kW"}
+  }
+}

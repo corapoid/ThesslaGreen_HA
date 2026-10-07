@@ -11,12 +11,13 @@ _LOGGER = logging.getLogger(__name__)
 
 class ThesslaGreenCoordinator(DataUpdateCoordinator[ControllerData]):
 
-    def __init__(self, hass, controller: ThesslaGreenModbusController, scan_interval: int):
+    def __init__(self, hass, controller: ThesslaGreenModbusController, scan_interval: int, config_entry=None):
         super().__init__(
             hass=hass,
             logger=_LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=scan_interval),
+            config_entry=config_entry,
         )
         self.controller = controller
 
@@ -24,7 +25,7 @@ class ThesslaGreenCoordinator(DataUpdateCoordinator[ControllerData]):
         try:
             return await self.controller.fetch_data()
         except Exception as error:
-            raise UpdateFailed(error)
+            raise UpdateFailed(str(error)) from error
 
     @property
     def safe_data(self) -> ControllerData:

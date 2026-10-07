@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+from math import isfinite
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import UnitOfTemperature, UnitOfTime, EntityCategory
 from homeassistant.core import HomeAssistant, callback
@@ -8,8 +9,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.event import async_track_state_change_event
 
 from . import DOMAIN
-from .modbus_controller import ThesslaGreenModbusController
+from .entity import ModbusEntity
 from .coordinator import ThesslaGreenCoordinator
+from .particle import is_particle, particle_entities
+from .airpack4 import is_airpack4, airpack4_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,7 +22,7 @@ SENSORS = [
     {"name": "Rekuperator Temperatura Nawiew", "address": 17, "input_type": "input", "scale": 0.1, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:thermometer"},
     {"name": "Rekuperator Temperatura Wywiew", "address": 18, "input_type": "input", "scale": 0.1, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:thermometer"},
     {"name": "Rekuperator Temperatura za FPX", "address": 19, "input_type": "input", "scale": 0.1, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:thermometer"},
-    {"name": "Rekuperator Temperatura PCB", "address": 22, "input_type": "input", "scale": 0.1, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:cpu-64-bit"},
+    {"name": "Rekuperator Temperatura otoczenia centrali", "address": 22, "input_type": "input", "scale": 0.1, "precision": 1, "unit": UnitOfTemperature.CELSIUS, "icon": "mdi:thermometer"},
     # Przepływy
     {"name": "Rekuperator Strumień nawiew", "address": 256, "input_type": "holding", "scale": 1, "precision": 1, "unit": "m3/h", "icon": "mdi:fan"},
     {"name": "Rekuperator Strumień wywiew", "address": 257, "input_type": "holding", "scale": 1, "precision": 1, "unit": "m3/h", "icon": "mdi:fan"},
@@ -36,6 +39,12 @@ async def async_setup_entry(
     modbus_data = hass.data[DOMAIN][entry.entry_id]
     coordinator: ThesslaGreenCoordinator = modbus_data["coordinator"]
     slave = modbus_data["slave"]
+    if is_airpack4(entry):
+        async_add_entities(airpack4_entities("sensor", coordinator, entry))
+        return
+    if is_particle(entry):
+        async_add_entities(particle_entities("sensor", coordinator, entry))
+        return
 
     entities = [
         ModbusGenericSensor(coordinator=coordinator, slave=slave, **sensor)
@@ -48,7 +57,7 @@ async def async_setup_entry(
     # Metryki obliczane
     power_entity = entry.options.get("sensor_power")  # W lub kW
     if not power_entity:
-        _LOGGER.warning("Nie skonfigurowano 'sensor_power' w opcjach integracji – COP będzie 'unavailable'.")
+        _LOGGER.debug("Nie skonfigurowano 'sensor_power' w opcjach integracji – COP będzie 'unavailable'.")
 
     entities.extend([
         RekuEfficiencySensor(coordinator=coordinator, slave=slave),
@@ -58,11 +67,11 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
-class ModbusGenericSensor(SensorEntity):
+class ModbusGenericSensor(ModbusEntity, SensorEntity):
     """Representation of a standard Modbus sensor."""
 
     def __init__(self, coordinator: ThesslaGreenCoordinator, name, address, input_type="holding", scale=1.0, precision=0, unit=None, icon=None, slave=1):
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self._address = address
         self._input_type = input_type
         self._scale = scale
@@ -95,6 +104,10 @@ class ModbusGenericSensor(SensorEntity):
 
         if raw_value is None:
             return None
+        if self._input_type == "input" and raw_value == 0x8000:
+            return None
+        if self._address in (256, 257) and self._input_type == "holding":
+            return None if raw_value == 0xFFFF else round(raw_value * self._scale, self._precision)
 
         # Konwersja na signed int16
         raw = raw_value
@@ -104,18 +117,11 @@ class ModbusGenericSensor(SensorEntity):
         value = raw * self._scale
         return round(value, self._precision)
 
-    async def async_update(self):
-        # Brak potrzeby ręcznego update — coordinator steruje
-        pass
-
-    async def async_added_to_hass(self):
-        self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))
-
-class ModbusUpdateIntervalSensor(SensorEntity):
+class ModbusUpdateIntervalSensor(ModbusEntity, SensorEntity):
     """Diagnostic sensor showing time between full Modbus updates."""
 
     def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int):
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self._slave = slave
         self._attr_name = "Modbus Update Interval"
         self._attr_native_unit_of_measurement = UnitOfTime.SECONDS
@@ -138,23 +144,16 @@ class ModbusUpdateIntervalSensor(SensorEntity):
     def native_value(self):
         return self.coordinator.safe_data.update_interval
 
-    async def async_update(self):
-        # Niepotrzebne — wszystko przez coordinator
-        pass
-
-    async def async_added_to_hass(self):
-        self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))
-
 # =============================
 #  Metryki: sprawność / moc / COP
 # =============================
 
-class _BaseComputedSensor(SensorEntity):
+class _BaseComputedSensor(ModbusEntity, SensorEntity):
     """Baza dla sensorów liczonych z koordynatora."""
     _attr_should_poll = False
 
     def __init__(self, coordinator: ThesslaGreenCoordinator, slave: int):
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self._slave = slave
         self._attr_native_value = None
         self._attr_device_info = {
@@ -169,7 +168,7 @@ class _BaseComputedSensor(SensorEntity):
         return self.coordinator.last_update_success and self._attr_native_value is not None
 
     async def async_added_to_hass(self):
-        self.async_on_remove(self.coordinator.async_add_listener(self._handle_coordinator_update))
+        await super().async_added_to_hass()
         self._recalc()
         self.async_write_ha_state()
 
@@ -193,7 +192,7 @@ class _BaseComputedSensor(SensorEntity):
 
     def _read_input_scaled(self, addr: int, scale: float, precision: int) -> float | None:
         raw = self.coordinator.safe_data.input.get(addr)
-        if raw is None:
+        if raw is None or raw == 0x8000:
             return None
         if raw > 0x7FFF:
             raw -= 0x10000
@@ -201,10 +200,8 @@ class _BaseComputedSensor(SensorEntity):
 
     def _read_holding_scaled(self, addr: int, scale: float) -> float | None:
         raw = self.coordinator.safe_data.holding.get(addr)
-        if raw is None:
+        if raw is None or raw == 0xFFFF:
             return None
-        if raw > 0x7FFF:
-            raw -= 0x10000
         return float(raw) * scale
 
     def _recalc(self):
@@ -309,21 +306,16 @@ class RekuCOPSensor(_BaseComputedSensor):
             return None
 
         self._last_power_val = val
+        if not isfinite(val):
+            self._last_power_val = st.state
+            return None
         u = unit.lower()
 
         if u in ("w", "watt"):
             return val / 1000.0
         if u == "kw":
             return val
-        if "kwh" in u:
-            _LOGGER.warning(
-                "Wybrany sensor '%s' podaje energię (%s), a nie moc. COP wymaga mocy chwilowej w W/kW.",
-                self._power_entity, unit
-            )
-            return None
-        # Brak/inna jednostka — traktuj jako kW (log diagnostyczny)
-        _LOGGER.debug("Sensor mocy '%s' ma jednostkę '%s' – przyjmuję jako kW.", self._power_entity, unit)
-        return val
+        return None
 
     def _recalc(self):
         To = self._read_temp_czerpnia()
