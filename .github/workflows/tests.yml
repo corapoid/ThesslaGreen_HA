@@ -1,0 +1,39 @@
+name: Python tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.13"
+            homeassistant: "homeassistant==2025.10.0"
+            pymodbus: "pymodbus==3.11.2"
+            constraints: tests/constraints-ha-2025.10.txt
+          - python: "3.14"
+            homeassistant: "homeassistant>=2025.10.0"
+            pymodbus: "pymodbus>=3.11.2,<4.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - name: Install test dependencies
+        env:
+          HOMEASSISTANT: ${{ matrix.homeassistant }}
+          PYMODBUS: ${{ matrix.pymodbus }}
+          PIP_CONSTRAINT: ${{ matrix.constraints }}
+        run: python -m pip install -r requirements-test.txt "$HOMEASSISTANT" "$PYMODBUS"
+      - name: Run tests
+        run: python -m pytest -q
