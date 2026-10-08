@@ -9,6 +9,7 @@ Entries under **Unreleased** describe development changes awaiting a release.
 
 ### Added
 
+- MIT license, included in release archives.
 - Device-profile selection for the existing generic recuperator integration,
   **Particle+500**, and **AirPack4 300h**.
 - Particle+ support using the manufacturer's dedicated holding-register map:

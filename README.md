@@ -243,6 +243,10 @@ do wykonania; zakres profili opiera się na dokumentacji producenta i testach au
 Profil AirPack4 obejmuje funkcje użytkownika. Kalibracja instalatora, klucz
 produktu i zmiana parametrów portów Modbus pozostają poza jego zakresem.
 
+## Licencja
+
+Projekt jest udostępniany na [licencji MIT](LICENSE).
+
 ### Publikowanie wydania
 
 Wersja w `manifest.json` i sekcja w changelogu muszą odpowiadać tagowi `vX.Y.Z`.

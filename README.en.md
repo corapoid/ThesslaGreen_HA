@@ -237,6 +237,10 @@ documentation and automated tests.
 The AirPack4 profile covers user functions. Installer calibration, product-key
 programming and Modbus-port configuration are outside its scope.
 
+## License
+
+The project is distributed under the [MIT license](LICENSE).
+
 ### Publishing a release
 
 The manifest version and a changelog section must match the `vX.Y.Z` tag.

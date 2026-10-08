@@ -21,6 +21,7 @@ def repository(tmp_path):
     (integration / ".env").write_text("TEST_PLACEHOLDER\n")
     (root / "README.md").write_text("[English](README.en.md)\n")
     (root / "README.en.md").write_text("[Polski](README.md)\n")
+    (root / "LICENSE").write_text("MIT License\n")
     (root / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\nFuture changes\n\n"
         "## [0.3.0] - 2026-10-08\n\n### Added\n\n- Device profiles.\n\n"
@@ -38,7 +39,7 @@ def test_archive_notes_checksum_and_determinism(repository, tmp_path):
     with ZipFile(first) as bundle:
         assert bundle.testzip() is None
         assert set(bundle.namelist()) == {
-            "README.md", "README.en.md", "CHANGELOG.md",
+            "README.md", "README.en.md", "CHANGELOG.md", "LICENSE",
             "custom_components/thessla_green/manifest.json",
             "custom_components/thessla_green/__init__.py",
         }
@@ -70,4 +71,10 @@ def test_missing_changelog_section(repository, tmp_path):
 def test_missing_document(repository, tmp_path):
     (repository / "README.en.md").unlink()
     with pytest.raises(ValueError, match="Missing release document"):
+        build_release(repository, "v0.3.0", tmp_path / "dist")
+
+
+def test_missing_license(repository, tmp_path):
+    (repository / "LICENSE").unlink()
+    with pytest.raises(ValueError, match="Missing release document: LICENSE"):
         build_release(repository, "v0.3.0", tmp_path / "dist")

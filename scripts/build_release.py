@@ -8,7 +8,7 @@ import re
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 TAG_PATTERN = re.compile(r"v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?")
-DOCUMENTS = ("README.md", "README.en.md", "CHANGELOG.md")
+DOCUMENTS = ("README.md", "README.en.md", "CHANGELOG.md", "LICENSE")
 
 
 def release_notes(changelog: str, version: str) -> str:
