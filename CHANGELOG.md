@@ -5,6 +5,8 @@ Entries under **Unreleased** describe development changes awaiting a release.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-08
+
 ### Added
 
 - Device-profile selection for the existing generic recuperator integration,
@@ -28,13 +30,22 @@ Entries under **Unreleased** describe development changes awaiting a release.
 - Device information and diagnostic sensors for the AirPack4 model, serial
   number, measured controller/TG-02 firmware and optional Expansion firmware.
 - Polish and English configuration/options translations.
+- Standalone English documentation in `README.en.md`, linked from the top
+  of the Polish README and included in release archives.
 - Regression tests covering real HA entries, coordinator notifications,
   device-registry metadata, state-change events, and stateful local Modbus TCP
   gateways using the real pymodbus client.
 - CI testing minimum supported HA/pymodbus versions and current releases.
+- Tag-driven releases gated on tests, HACS and hassfest, with manifest/tag
+  consistency checks, changelog-derived notes and downloadable SHA256 checksums.
+- Weekly Dependabot updates for GitHub Actions.
 
 ### Changed
 
+- Rebuild the Polish README as an installation, configuration and diagnostics
+  guide; remove badges and the embedded English section.
+- Update checkout/setup-python to v7 and action-gh-release to v3; pin the
+  JavaScript actions to reviewed release commit hashes.
 - Existing recuperator entries can select the AirPack4 profile through options;
   changing options automatically reloads the integration.
 - Recuperator entities use coordinator notifications instead of redundant HA
@@ -55,6 +66,8 @@ Entries under **Unreleased** describe development changes awaiting a release.
   pymodbus is constrained to `>=3.11.2,<4.0`.
 - Release archives validate successfully before upload, exclude generated
   caches, include documentation/changelog, and fail on packaging/upload errors.
+- Publish fork releases from `corapoid/ThesslaGreen_HA` and point documentation
+  and issue-tracker links to the maintained fork.
 
 ### Fixed
 
@@ -79,4 +92,5 @@ Entries under **Unreleased** describe development changes awaiting a release.
 - Physical-device verification is pending; tests exercise simulated gateways
   and real Home Assistant registry/coordinator APIs.
 
-[Unreleased]: https://github.com/aLAN-LDZ/ThesslaGreen_HA/compare/5bae9f4...HEAD
+[Unreleased]: https://github.com/corapoid/ThesslaGreen_HA/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/corapoid/ThesslaGreen_HA/compare/5bae9f4...v0.3.0
