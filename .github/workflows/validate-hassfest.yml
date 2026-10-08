@@ -2,15 +2,30 @@ name: Validate with hassfest
 
 on:
   push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hassfest-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
 
       - name: hassfest validation
         uses: home-assistant/actions/hassfest@master

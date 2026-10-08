@@ -1,38 +1,66 @@
-name: "Release"
+name: Release
 
 on:
-  release:
-    types: [published, prereleased]
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag matching manifest.json (for example v0.3.0)"
+        required: true
+        type: string
 
-permissions: {}
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+    with:
+      ref: ${{ inputs.tag || github.ref }}
+  hassfest:
+    uses: ./.github/workflows/validate-hassfest.yml
+    with:
+      ref: ${{ inputs.tag || github.ref }}
+  hacs:
+    uses: ./.github/workflows/validate-hacs.yml
+    with:
+      ref: ${{ inputs.tag || github.ref }}
   release:
-    name: "Release"
-    runs-on: "ubuntu-latest"
+    needs: [tests, hassfest, hacs]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
-      - name: "Checkout the repository"
-        uses: actions/checkout@v4
-
-      - name: "Create ZIP with integration"
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          RELEASE_TAG="${RELEASE_TAG//[^a-zA-Z0-9._-]/_}"
-          zip -r "dist/thessla_green_${RELEASE_TAG}.zip" \
-            custom_components/thessla_green \
-            README.md CHANGELOG.md \
-            -x '*/__pycache__/*' '*.pyc' '*/.DS_Store'
-          unzip -t "dist/thessla_green_${RELEASE_TAG}.zip"
-
-      - name: "Upload the ZIP file to the release"
-        uses: softprops/action-gh-release@v2
+      - name: Checkout release tag
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          files: dist/*.zip
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Validate version and build release artifacts
+        run: python scripts/build_release.py "$RELEASE_TAG" --output-dir dist
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ steps.checkout.outputs.commit }}
+          body_path: dist/RELEASE_NOTES.md
+          files: |
+            dist/thessla_green_*.zip
+            dist/SHA256SUMS
           fail_on_unmatched_files: true
+          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          make_latest: ${{ contains(env.RELEASE_TAG, '-') && 'false' || 'true' }}

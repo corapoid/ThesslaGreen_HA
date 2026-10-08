@@ -3,15 +3,31 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
   schedule:
     - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hacs-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   hacs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
       - name: HACS validation
         uses: hacs/action@main
         with:
           category: integration
+          comment: false
